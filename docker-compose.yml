@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  meteo-wp:
+    build: .
+    container_name: meteo-wp
+    ports:
+      - "8124:8124"
+    environment:
+      TZ: "Europe/Rome"
+
+      # WordPress
+      WP_URL: "https://www.montagneepaesi.com/wp-json/wp/v2/posts"
+      WP_USER: "nicola"
+      WP_APP_PASSWORD: "INSERISCI_LA_TUA_APP_PASSWORD"
+      WP_CATEGORY_ID: "2496"
+
+      # Impostazioni
+      REGIONE: "Lombardia"
+      RUN_HOUR: "7"
+      RUN_MINUTE: "0"
+    restart: unless-stopped
