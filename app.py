@@ -84,7 +84,12 @@ lock = threading.Lock()
 # FUNZIONI CORE
 # ======================
 def crea_immagine_con_titolo(titolo_testo: str) -> str:
-    """Crea immagine in /tmp e ritorna il path."""
+    """
+    Crea immagine in /tmp e ritorna il path.
+    Testo sempre leggibile: va a capo e riduce il font per non tagliare.
+    """
+    import textwrap
+
     r = requests.get(IMG_DEFAULT_URL, timeout=30)
     r.raise_for_status()
     img = Image.open(BytesIO(r.content)).convert("RGBA")
@@ -92,28 +97,87 @@ def crea_immagine_con_titolo(titolo_testo: str) -> str:
     overlay = Image.new("RGBA", img.size, (255, 255, 255, 0))
     draw = ImageDraw.Draw(overlay)
 
-    try:
-        font = ImageFont.truetype(FONT_PATH, 50)
-    except Exception:
-        font = ImageFont.load_default()
+    img_w, img_h = img.size
 
-    bbox = draw.textbbox((0, 0), titolo_testo, font=font)
-    w = bbox[2] - bbox[0]
-    h = bbox[3] - bbox[1]
+    # Margini e impostazioni box
+    margin_x = int(img_w * 0.06)   # 6% ai lati
+    max_text_w = img_w - 2 * margin_x
+    padding = 16
+    y = 30  # distanza dall'alto
 
-    img_w, _ = img.size
-    x = (img_w - w) / 2
-    y = 20
+    # Prova a partire grande e scendere finché tutto sta nel box
+    start_size = 56
+    min_size = 28
 
-    padding = 12
-    draw.rectangle((x - padding, y - padding, x + w + padding, y + h + padding), fill=(0, 0, 0, 150))
-    draw.text((x, y), titolo_testo, font=font, fill=(255, 255, 255, 255))
+    def load_font(sz: int):
+        try:
+            return ImageFont.truetype(FONT_PATH, sz)
+        except Exception:
+            return ImageFont.load_default()
+
+    # Funzione che misura testo multi-linea
+    def measure(lines, font):
+        line_heights = []
+        line_widths = []
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            line_widths.append(bbox[2] - bbox[0])
+            line_heights.append(bbox[3] - bbox[1])
+        return max(line_widths) if line_widths else 0, sum(line_heights) + (len(lines) - 1) * 6
+
+    # Algoritmo: prova a spezzare e ridurre font
+    best_lines = [titolo_testo]
+    best_font = load_font(start_size)
+
+    for size in range(start_size, min_size - 1, -2):
+        font = load_font(size)
+
+        # wrap "intelligente": prova 1, 2, 3 righe
+        for max_lines in (1, 2, 3):
+            # stima larghezza caratteri: più piccolo il font, più caratteri per riga
+            # (valore empirico: funziona bene su DejaVuSans-Bold)
+            approx_chars = max(12, int(max_text_w / (size * 0.55)))
+            wrapped = textwrap.wrap(titolo_testo, width=approx_chars)
+
+            if len(wrapped) > max_lines:
+                continue
+
+            w, h = measure(wrapped, font)
+            if w <= max_text_w and (y + h + 2 * padding) < img_h * 0.5:
+                best_lines = wrapped
+                best_font = font
+                break
+        else:
+            continue
+        break
+
+    # Misura finale
+    text_w, text_h = measure(best_lines, best_font)
+
+    # Box nero semi-trasparente centrato
+    box_x0 = (img_w - text_w) / 2 - padding
+    box_y0 = y - padding
+    box_x1 = (img_w + text_w) / 2 + padding
+    box_y1 = y + text_h + padding
+
+    draw.rectangle((box_x0, box_y0, box_x1, box_y1), fill=(0, 0, 0, 150))
+
+    # Disegna linee centrate
+    cur_y = y
+    for line in best_lines:
+        bbox = draw.textbbox((0, 0), line, font=best_font)
+        lw = bbox[2] - bbox[0]
+        lh = bbox[3] - bbox[1]
+        x = (img_w - lw) / 2
+        draw.text((x, cur_y), line, font=best_font, fill=(255, 255, 255, 255))
+        cur_y += lh + 6
 
     out = Image.alpha_composite(img, overlay).convert("RGB")
 
     fname = f"/tmp/meteo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
     out.save(fname, quality=92)
     return fname
+
 
 
 def fetch_meteo_oggi() -> List[dict]:
