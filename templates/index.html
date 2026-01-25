@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Meteo Montagne & Paesi</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 20px; }
+    .top { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+    .btn { padding:10px 14px; border:0; border-radius:10px; cursor:pointer; }
+    .btn-run { background:#16a34a; color:white; font-weight:700; }
+    .btn-refresh { background:#0ea5e9; color:white; font-weight:700; }
+    .card { border:1px solid #e5e7eb; border-radius:14px; padding:14px; margin-top:14px; }
+    .row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed #e5e7eb; }
+    .row:last-child { border-bottom:0; }
+    img { width:32px; height:32px; }
+    .muted { color:#6b7280; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+  </style>
+</head>
+<body>
+  <h1>Meteo Montagne & Paesi</h1>
+  <div class="muted">by Nicola Trussardi</div>
+
+  <div class="card">
+    <div class="top">
+      <form action="/run" method="post">
+        <button class="btn btn-run" type="submit">Aggiorna ora</button>
+      </form>
+
+      <form action="/" method="get">
+        <button class="btn btn-refresh" type="submit">Ricarica</button>
+      </form>
+
+      <div class="muted">
+        Stato: <b>{{ "RUNNING" if status.running else "IDLE" }}</b>
+      </div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <div>Ultimo run: <span class="mono">{{ status.last_run or "—" }}</span></div>
+      <div>Prossimo run: <span class="mono">{{ status.next_run or "—" }}</span></div>
+      {% if status.last_error %}
+        <div style="margin-top:10px; color:#b91c1c;">
+          Errore ultimo run: <span class="mono">{{ status.last_error }}</span>
+        </div>
+      {% endif %}
+      {% if status.last_post_url %}
+        <div style="margin-top:10px;">
+          Ultimo articolo: <span class="mono">{{ status.last_post_url }}</span>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Previsioni (oggi)</h3>
+    {% if meteo and meteo|length > 0 %}
+      {% for c in meteo %}
+        <div class="row">
+          <img src="{{ c.icona }}" alt="icon" />
+          <div style="flex:1;">
+            <b>{{ c.nome }}</b> — {{ c.descrizione }}
+            <div class="muted">
+              {{ "%.1f"|format(c.t_min) }}° / {{ "%.1f"|format(c.t_max) }}°
+              {% if c.pioggia > 0.5 %}
+                · precipitazioni {{ "%.1f"|format(c.pioggia) }} mm
+              {% else %}
+                · nessuna pioggia significativa
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="muted">Nessun dato ancora. Premi “Aggiorna ora”.</div>
+    {% endif %}
+  </div>
+
+  <div class="muted" style="margin-top:14px;">
+    Suggerimento: aggiungi questa pagina come pannello “Webpage” in Home Assistant puntando a
+    <span class="mono">http://IP_RASPBERRY:8124/</span>
+  </div>
+</body>
+</html>
