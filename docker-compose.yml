@@ -12,7 +12,7 @@ services:
       # WordPress
       WP_URL: "https://www.montagneepaesi.com/wp-json/wp/v2/posts"
       WP_USER: "nicola"
-      WP_APP_PASSWORD: "INSERISCI_LA_TUA_APP_PASSWORD"
+      WP_APP_PASSWORD: "${WP_APP_PASSWORD}"
       WP_CATEGORY_ID: "2496"
 
       # Impostazioni
