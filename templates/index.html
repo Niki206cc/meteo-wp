@@ -2,84 +2,352 @@
 <html lang="it">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Meteo Montagne & Paesi</title>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 20px; }
-    .top { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
-    .btn { padding:10px 14px; border:0; border-radius:10px; cursor:pointer; }
-    .btn-run { background:#16a34a; color:white; font-weight:700; }
-    .btn-refresh { background:#0ea5e9; color:white; font-weight:700; }
-    .card { border:1px solid #e5e7eb; border-radius:14px; padding:14px; margin-top:14px; }
-    .row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px dashed #e5e7eb; }
-    .row:last-child { border-bottom:0; }
-    img { width:32px; height:32px; }
-    .muted { color:#6b7280; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    :root {
+      color-scheme: light;
+      --bg: #f3f6f9;
+      --card: #ffffff;
+      --text: #18212b;
+      --muted: #687484;
+      --border: #e2e8f0;
+      --primary: #167447;
+      --primary-hover: #105c38;
+      --secondary: #e8f1f8;
+      --secondary-hover: #d9e8f3;
+      --danger-bg: #fff1f2;
+      --danger: #b42318;
+      --success-bg: #e9f8ef;
+      --success: #167447;
+      --shadow: 0 12px 35px rgba(15, 23, 42, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 24px 14px 40px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(22, 116, 71, 0.12), transparent 34%),
+        var(--bg);
+    }
+
+    .container {
+      width: min(820px, 100%);
+      margin: 0 auto;
+    }
+
+    .header {
+      margin-bottom: 20px;
+    }
+
+    .header-label {
+      display: inline-block;
+      margin-bottom: 6px;
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(26px, 5vw, 38px);
+      line-height: 1.1;
+      letter-spacing: -.03em;
+    }
+
+    .subtitle {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .card {
+      margin-top: 16px;
+      padding: 20px;
+      border: 1px solid rgba(226, 232, 240, .95);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, .96);
+      box-shadow: var(--shadow);
+    }
+
+    .control-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: {{ "#fff7ed" if status.running else "#e9f8ef" }};
+      color: {{ "#9a3412" if status.running else "#167447" }};
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 0 4px rgba(22, 116, 71, .10);
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .actions form { margin: 0; }
+
+    .btn {
+      width: 100%;
+      min-height: 50px;
+      padding: 12px 18px;
+      border: 0;
+      border-radius: 13px;
+      cursor: pointer;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: .015em;
+      transition: transform .15s ease, background .15s ease, box-shadow .15s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .btn-primary {
+      color: #fff;
+      background: var(--primary);
+      box-shadow: 0 8px 18px rgba(22, 116, 71, .22);
+    }
+
+    .btn-primary:hover { background: var(--primary-hover); }
+
+    .btn-secondary {
+      color: #31546c;
+      background: var(--secondary);
+    }
+
+    .btn-secondary:hover { background: var(--secondary-hover); }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .status-item {
+      padding: 13px 14px;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      background: #f8fafc;
+    }
+
+    .status-item-label {
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .message {
+      margin-top: 14px;
+      padding: 13px 14px;
+      border-radius: 13px;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .message-error {
+      color: var(--danger);
+      background: var(--danger-bg);
+      border: 1px solid #fecdd3;
+    }
+
+    .message-success {
+      color: var(--success);
+      background: var(--success-bg);
+      border: 1px solid #bbf7d0;
+    }
+
+    .message a {
+      color: inherit;
+      font-weight: 800;
+    }
+
+    .section-title {
+      margin: 0 0 10px;
+      font-size: 19px;
+    }
+
+    .weather-row {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      padding: 14px 2px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .weather-row:last-child { border-bottom: 0; }
+
+    .weather-icon {
+      width: 42px;
+      height: 42px;
+      flex: 0 0 42px;
+      padding: 5px;
+      border-radius: 12px;
+      background: #f1f5f9;
+    }
+
+    .weather-content { flex: 1; min-width: 0; }
+
+    .weather-city {
+      font-weight: 800;
+      text-transform: capitalize;
+    }
+
+    .weather-details {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.4;
+    }
+
+    .footer-note {
+      margin: 18px 4px 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      text-align: center;
+    }
+
+    @media (max-width: 600px) {
+      body { padding-top: 18px; }
+      .card { padding: 17px; border-radius: 17px; }
+      .actions { grid-template-columns: 1fr; }
+      .status-grid { grid-template-columns: 1fr; }
+      .btn { min-height: 52px; }
+    }
   </style>
 </head>
 <body>
-  <h1>Meteo Montagne & Paesi</h1>
-  <div class="muted">by Nicola Trussardi</div>
+  <main class="container">
+    <header class="header">
+      <div class="header-label">Pannello di controllo</div>
+      <h1>Meteo Montagne & Paesi</h1>
+      <div class="subtitle">Pubblicazione automatica delle previsioni meteo su WordPress</div>
+    </header>
 
-  <div class="card">
-    <div class="top">
-      <form action="/run" method="post">
-        <button class="btn btn-run" type="submit">Aggiorna ora</button>
-      </form>
-
-      <form action="/" method="get">
-        <button class="btn btn-refresh" type="submit">Ricarica</button>
-      </form>
-
-      <div class="muted">
-        Stato: <b>{{ "RUNNING" if status.running else "IDLE" }}</b>
+    <section class="card">
+      <div class="control-top">
+        <div>
+          <strong>Stato del servizio</strong>
+          <div class="subtitle">Programmazione giornaliera automatica</div>
+        </div>
+        <div class="status-pill">
+          <span class="status-dot"></span>
+          {{ "PUBBLICAZIONE IN CORSO" if status.running else "PRONTO" }}
+        </div>
       </div>
-    </div>
 
-    <div style="margin-top:10px;">
-      <div>Ultimo run: <span class="mono">{{ status.last_run or "—" }}</span></div>
-      <div>Prossimo run: <span class="mono">{{ status.next_run or "—" }}</span></div>
+      <div class="actions">
+        <form action="/run" method="post" onsubmit="return confirm('Vuoi generare e pubblicare subito il nuovo articolo meteo?');">
+          <button class="btn btn-primary" type="submit" {% if status.running %}disabled{% endif %}>
+            {{ "PUBBLICAZIONE IN CORSO..." if status.running else "INVIA ORA L’ARTICOLO" }}
+          </button>
+        </form>
+
+        <form action="/" method="get">
+          <button class="btn btn-secondary" type="submit">AGGIORNA STATO</button>
+        </form>
+      </div>
+
+      <div class="status-grid">
+        <div class="status-item">
+          <div class="status-item-label">Ultimo invio</div>
+          <div class="mono">{{ status.last_run or "—" }}</div>
+        </div>
+        <div class="status-item">
+          <div class="status-item-label">Prossimo invio</div>
+          <div class="mono">{{ status.next_run or "—" }}</div>
+        </div>
+      </div>
+
       {% if status.last_error %}
-        <div style="margin-top:10px; color:#b91c1c;">
-          Errore ultimo run: <span class="mono">{{ status.last_error }}</span>
+        <div class="message message-error">
+          <strong>Errore nell’ultimo invio</strong><br>
+          <span class="mono">{{ status.last_error }}</span>
         </div>
       {% endif %}
-      {% if status.last_post_url %}
-        <div style="margin-top:10px;">
-          Ultimo articolo: <span class="mono">{{ status.last_post_url }}</span>
-        </div>
-      {% endif %}
-    </div>
-  </div>
 
-  <div class="card">
-    <h3 style="margin-top:0;">Previsioni (oggi)</h3>
-    {% if meteo and meteo|length > 0 %}
-      {% for c in meteo %}
-        <div class="row">
-          <img src="{{ c.icona }}" alt="icon" />
-          <div style="flex:1;">
-            <b>{{ c.nome }}</b> — {{ c.descrizione }}
-            <div class="muted">
-              {{ "%.1f"|format(c.t_min) }}° / {{ "%.1f"|format(c.t_max) }}°
-              {% if c.pioggia > 0.5 %}
-                · precipitazioni {{ "%.1f"|format(c.pioggia) }} mm
-              {% else %}
-                · nessuna pioggia significativa
-              {% endif %}
+      {% if status.last_post_url %}
+        <div class="message message-success">
+          <strong>Articolo pubblicato correttamente.</strong><br>
+          <a href="{{ status.last_post_url }}" target="_blank" rel="noopener">Apri l’ultimo articolo pubblicato</a>
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2 class="section-title">Previsioni di oggi</h2>
+
+      {% if meteo and meteo|length > 0 %}
+        {% for c in meteo %}
+          <div class="weather-row">
+            <img class="weather-icon" src="{{ c.icona }}" alt="Meteo {{ c.nome }}" />
+            <div class="weather-content">
+              <div><span class="weather-city">{{ c.nome }}</span> — {{ c.descrizione }}</div>
+              <div class="weather-details">
+                Minima {{ "%.1f"|format(c.t_min) }}° · Massima {{ "%.1f"|format(c.t_max) }}°
+                {% if c.pioggia > 0.5 %}
+                  · Precipitazioni {{ "%.1f"|format(c.pioggia) }} mm
+                {% else %}
+                  · Nessuna pioggia significativa
+                {% endif %}
+              </div>
             </div>
           </div>
+        {% endfor %}
+      {% else %}
+        <div class="message" style="background:#f8fafc; color:var(--muted); border:1px solid var(--border);">
+          Le previsioni appariranno qui dopo il primo invio dell’articolo.
         </div>
-      {% endfor %}
-    {% else %}
-      <div class="muted">Nessun dato ancora. Premi “Aggiorna ora”.</div>
-    {% endif %}
-  </div>
+      {% endif %}
+    </section>
 
-  <div class="muted" style="margin-top:14px;">
-    Suggerimento: aggiungi questa pagina come pannello “Webpage” in Home Assistant puntando a
-    <span class="mono">http://IP_RASPBERRY:8124/</span>
-  </div>
+    <div class="footer-note">
+      Servizio meteo automatico di Montagne & Paesi<br>
+      Pannello disponibile sulla porta 8124
+    </div>
+  </main>
 </body>
 </html>
