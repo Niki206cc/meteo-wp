@@ -1,17 +1,17 @@
 import os
 import threading
+import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from io import BytesIO
 from typing import Dict, List, Optional
 
 import requests
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -32,11 +32,9 @@ IMG_DEFAULT_URL = os.getenv(
     "IMG_DEFAULT_URL",
     "https://www.montagneepaesi.com/wp-content/uploads/2025/09/Lombardia.jpg",
 )
-
-# Font disponibile nel container (installato da Dockerfile)
 FONT_PATH = os.getenv(
     "FONT_PATH",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 )
 
 CITTA: Dict[str, tuple] = {
@@ -53,20 +51,31 @@ descrizioni = {
     2: ("variabile", "https://img.icons8.com/color/48/000000/cloud.png"),
     3: ("cielo coperto", "https://img.icons8.com/color/48/000000/clouds.png"),
     45: ("nebbie", "https://img.icons8.com/color/48/000000/fog-day.png"),
+    48: ("nebbie con brina", "https://img.icons8.com/color/48/000000/fog-day.png"),
     51: ("pioviggini", "https://img.icons8.com/color/48/000000/light-rain.png"),
+    53: ("pioviggini", "https://img.icons8.com/color/48/000000/light-rain.png"),
+    55: ("pioviggini intense", "https://img.icons8.com/color/48/000000/light-rain.png"),
     61: ("piogge", "https://img.icons8.com/color/48/000000/rain.png"),
+    63: ("piogge", "https://img.icons8.com/color/48/000000/rain.png"),
+    65: ("piogge intense", "https://img.icons8.com/color/48/000000/rain.png"),
     71: ("nevicate", "https://img.icons8.com/color/48/000000/snow.png"),
+    73: ("nevicate", "https://img.icons8.com/color/48/000000/snow.png"),
+    75: ("nevicate intense", "https://img.icons8.com/color/48/000000/snow.png"),
+    80: ("rovesci", "https://img.icons8.com/color/48/000000/rain.png"),
+    81: ("rovesci", "https://img.icons8.com/color/48/000000/rain.png"),
+    82: ("forti rovesci", "https://img.icons8.com/color/48/000000/rain.png"),
     95: ("temporali", "https://img.icons8.com/color/48/000000/storm.png"),
+    96: ("temporali con grandine", "https://img.icons8.com/color/48/000000/storm.png"),
+    99: ("forti temporali con grandine", "https://img.icons8.com/color/48/000000/storm.png"),
 }
 
 giorni_it = ["Lunedì", "Martedì", "Mercoledì", "Giovedì", "Venerdì", "Sabato", "Domenica"]
-mesi_it = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
-           "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+mesi_it = [
+    "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+    "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
+]
 
 
-# ======================
-# STATO APP (per GUI)
-# ======================
 @dataclass
 class Status:
     running: bool = False
@@ -75,19 +84,13 @@ class Status:
     last_error: Optional[str] = None
     last_post_url: Optional[str] = None
 
+
 status = Status()
 last_meteo: List[dict] = []
 lock = threading.Lock()
 
 
-# ======================
-# FUNZIONI CORE
-# ======================
 def crea_immagine_con_titolo(titolo_testo: str) -> str:
-    """
-    Crea immagine in /tmp e ritorna il path.
-    Testo sempre leggibile: va a capo e riduce il font per non tagliare.
-    """
     import textwrap
 
     r = requests.get(IMG_DEFAULT_URL, timeout=30)
@@ -96,16 +99,11 @@ def crea_immagine_con_titolo(titolo_testo: str) -> str:
 
     overlay = Image.new("RGBA", img.size, (255, 255, 255, 0))
     draw = ImageDraw.Draw(overlay)
-
     img_w, img_h = img.size
-
-    # Margini e impostazioni box
-    margin_x = int(img_w * 0.06)   # 6% ai lati
+    margin_x = int(img_w * 0.06)
     max_text_w = img_w - 2 * margin_x
     padding = 16
-    y = 30  # distanza dall'alto
-
-    # Prova a partire grande e scendere finché tutto sta nel box
+    y = 30
     start_size = 56
     min_size = 28
 
@@ -115,93 +113,119 @@ def crea_immagine_con_titolo(titolo_testo: str) -> str:
         except Exception:
             return ImageFont.load_default()
 
-    # Funzione che misura testo multi-linea
     def measure(lines, font):
-        line_heights = []
-        line_widths = []
+        heights = []
+        widths = []
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=font)
-            line_widths.append(bbox[2] - bbox[0])
-            line_heights.append(bbox[3] - bbox[1])
-        return max(line_widths) if line_widths else 0, sum(line_heights) + (len(lines) - 1) * 6
+            widths.append(bbox[2] - bbox[0])
+            heights.append(bbox[3] - bbox[1])
+        return max(widths) if widths else 0, sum(heights) + (len(lines) - 1) * 6
 
-    # Algoritmo: prova a spezzare e ridurre font
     best_lines = [titolo_testo]
     best_font = load_font(start_size)
 
     for size in range(start_size, min_size - 1, -2):
         font = load_font(size)
-
-        # wrap "intelligente": prova 1, 2, 3 righe
-        for max_lines in (1, 2, 3):
-            # stima larghezza caratteri: più piccolo il font, più caratteri per riga
-            # (valore empirico: funziona bene su DejaVuSans-Bold)
-            approx_chars = max(12, int(max_text_w / (size * 0.55)))
-            wrapped = textwrap.wrap(titolo_testo, width=approx_chars)
-
-            if len(wrapped) > max_lines:
-                continue
-
+        approx_chars = max(12, int(max_text_w / (size * 0.55)))
+        wrapped = textwrap.wrap(titolo_testo, width=approx_chars)
+        if len(wrapped) <= 3:
             w, h = measure(wrapped, font)
             if w <= max_text_w and (y + h + 2 * padding) < img_h * 0.5:
                 best_lines = wrapped
                 best_font = font
                 break
-        else:
-            continue
-        break
 
-    # Misura finale
     text_w, text_h = measure(best_lines, best_font)
-
-    # Box nero semi-trasparente centrato
     box_x0 = (img_w - text_w) / 2 - padding
     box_y0 = y - padding
     box_x1 = (img_w + text_w) / 2 + padding
     box_y1 = y + text_h + padding
-
     draw.rectangle((box_x0, box_y0, box_x1, box_y1), fill=(0, 0, 0, 150))
 
-    # Disegna linee centrate
     cur_y = y
     for line in best_lines:
         bbox = draw.textbbox((0, 0), line, font=best_font)
         lw = bbox[2] - bbox[0]
         lh = bbox[3] - bbox[1]
-        x = (img_w - lw) / 2
-        draw.text((x, cur_y), line, font=best_font, fill=(255, 255, 255, 255))
+        draw.text(((img_w - lw) / 2, cur_y), line, font=best_font, fill=(255, 255, 255, 255))
         cur_y += lh + 6
 
     out = Image.alpha_composite(img, overlay).convert("RGB")
-
     fname = f"/tmp/meteo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
     out.save(fname, quality=92)
     return fname
 
 
+def richiesta_open_meteo(params: dict) -> requests.Response:
+    ultimo_errore = None
+
+    for tentativo in range(1, 6):
+        try:
+            response = requests.get(
+                API_URL,
+                params=params,
+                timeout=45,
+                headers={"User-Agent": "Meteo-Montagne-Paesi/1.1"},
+            )
+
+            if response.status_code in (429, 500, 502, 503, 504):
+                raise requests.HTTPError(
+                    f"HTTP {response.status_code}: {response.text[:200]}",
+                    response=response,
+                )
+
+            response.raise_for_status()
+            return response
+
+        except requests.RequestException as errore:
+            ultimo_errore = errore
+            if tentativo < 5:
+                time.sleep(tentativo * 10)
+
+    raise RuntimeError(
+        "Open-Meteo non disponibile dopo 5 tentativi. "
+        f"Ultimo errore: {ultimo_errore}"
+    )
+
 
 def fetch_meteo_oggi() -> List[dict]:
-    meteo_citta = []
-    for nome, (lat, lon) in CITTA.items():
-        params = {
-            "latitude": lat,
-            "longitude": lon,
-            "daily": ["temperature_2m_max", "temperature_2m_min", "precipitation_sum", "weathercode"],
-            "timezone": "Europe/Rome",
-        }
-        resp = requests.get(API_URL, params=params, timeout=30)
-        resp.raise_for_status()
-        j = resp.json()
+    nomi = list(CITTA.keys())
+    latitudini = ",".join(str(CITTA[nome][0]) for nome in nomi)
+    longitudini = ",".join(str(CITTA[nome][1]) for nome in nomi)
 
-        t_min = float(j["daily"]["temperature_2m_min"][0])
-        t_max = float(j["daily"]["temperature_2m_max"][0])
-        pioggia = float(j["daily"]["precipitation_sum"][0])
-        wcode = int(j["daily"]["weathercode"][0])
+    params = {
+        "latitude": latitudini,
+        "longitude": longitudini,
+        "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code",
+        "timezone": "Europe/Rome",
+        "forecast_days": 1,
+    }
 
-        descr, icona = descrizioni.get(
-            wcode, ("tempo variabile", "https://img.icons8.com/color/48/000000/cloud.png")
+    response = richiesta_open_meteo(params)
+    payload = response.json()
+    risultati = payload if isinstance(payload, list) else [payload]
+
+    if len(risultati) != len(nomi):
+        raise RuntimeError(
+            f"Open-Meteo ha restituito {len(risultati)} località invece di {len(nomi)}."
         )
 
+    meteo_citta = []
+    for nome, dati in zip(nomi, risultati):
+        daily = dati.get("daily", {})
+        try:
+            t_min = float(daily["temperature_2m_min"][0])
+            t_max = float(daily["temperature_2m_max"][0])
+            pioggia = float(daily["precipitation_sum"][0] or 0)
+            wcode = int(daily["weather_code"][0])
+        except (KeyError, IndexError, TypeError, ValueError) as errore:
+            raise RuntimeError(f"Dati meteo non validi per {nome}: {errore}") from errore
+
+        descr, icona = descrizioni.get(
+            wcode,
+            ("tempo variabile", "https://img.icons8.com/color/48/000000/cloud.png"),
+        )
         meteo_citta.append({
             "nome": nome,
             "t_min": t_min,
@@ -210,13 +234,17 @@ def fetch_meteo_oggi() -> List[dict]:
             "descrizione": descr,
             "icona": icona,
         })
+
     return meteo_citta
 
 
 def build_testo_html(oggi_data: str, meteo_citta: List[dict]) -> str:
     testo = f"<p>Previsioni meteo per la {REGIONE} per la giornata di {oggi_data}.</p>\n"
     for c in meteo_citta:
-        testo += f"<p><strong>{c['nome']}:</strong> {c['descrizione']} con temperature tra {c['t_min']:.1f}° e {c['t_max']:.1f}°."
+        testo += (
+            f"<p><strong>{c['nome']}:</strong> {c['descrizione']} con temperature "
+            f"tra {c['t_min']:.1f}° e {c['t_max']:.1f}°."
+        )
         if c["pioggia"] > 0.5:
             testo += f" Precipitazioni circa {c['pioggia']:.1f} mm."
         else:
@@ -226,15 +254,18 @@ def build_testo_html(oggi_data: str, meteo_citta: List[dict]) -> str:
 
 
 def publish_to_wordpress(titolo: str, testo_html: str, immagine_path: str) -> Optional[str]:
-    """Pubblica media + post. Ritorna link del post se disponibile."""
     if not WP_USER or not WP_APP_PASSWORD:
         raise RuntimeError("Credenziali WordPress mancanti (WP_USER/WP_APP_PASSWORD).")
 
     media_endpoint = WP_URL.replace("/posts", "/media")
-
     with open(immagine_path, "rb") as f:
         files = {"file": (os.path.basename(immagine_path), f, "image/jpeg")}
-        res_upload = requests.post(media_endpoint, auth=(WP_USER, WP_APP_PASSWORD), files=files, timeout=60)
+        res_upload = requests.post(
+            media_endpoint,
+            auth=(WP_USER, WP_APP_PASSWORD),
+            files=files,
+            timeout=60,
+        )
         res_upload.raise_for_status()
         media_id = res_upload.json()["id"]
 
@@ -245,12 +276,16 @@ def publish_to_wordpress(titolo: str, testo_html: str, immagine_path: str) -> Op
         "featured_media": media_id,
         "categories": [WP_CATEGORY_ID],
     }
-    res_post = requests.post(WP_URL, auth=(WP_USER, WP_APP_PASSWORD), json=post, timeout=60)
+    res_post = requests.post(
+        WP_URL,
+        auth=(WP_USER, WP_APP_PASSWORD),
+        json=post,
+        timeout=60,
+    )
     if res_post.status_code != 201:
         raise RuntimeError(f"Errore pubblicazione WP: {res_post.status_code} {res_post.text}")
 
-    j = res_post.json()
-    return j.get("link")
+    return res_post.json().get("link")
 
 
 def run_job():
@@ -266,18 +301,15 @@ def run_job():
         giorno = giorni_it[oggi.weekday()]
         mese = mesi_it[oggi.month - 1]
         oggi_data = f"{giorno} {oggi.day} {mese} {oggi.year}"
-
         titolo = f"Meteo Lombardia – {oggi_data}"
 
         meteo_citta = fetch_meteo_oggi()
         testo_html = build_testo_html(oggi_data, meteo_citta)
-
         img_path = crea_immagine_con_titolo(f"Meteo di {oggi_data}")
 
         try:
             post_url = publish_to_wordpress(titolo, testo_html, img_path)
         finally:
-            # ✅ PULIZIA: elimina sempre l'immagine generata
             try:
                 if os.path.exists(img_path):
                     os.remove(img_path)
@@ -289,9 +321,9 @@ def run_job():
             status.last_run = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             status.last_post_url = post_url
 
-    except Exception as e:
+    except Exception as errore:
         with lock:
-            status.last_error = str(e)
+            status.last_error = str(errore)
             status.last_run = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     finally:
         with lock:
@@ -299,16 +331,11 @@ def run_job():
 
 
 def run_job_async():
-    t = threading.Thread(target=run_job, daemon=True)
-    t.start()
+    threading.Thread(target=run_job, daemon=True).start()
 
 
-# ======================
-# FASTAPI + GUI
-# ======================
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
-
 scheduler = BackgroundScheduler(timezone="Europe/Rome")
 
 
@@ -348,7 +375,10 @@ def index(request: Request):
     with lock:
         s = asdict(status)
         meteo = list(last_meteo)
-    return templates.TemplateResponse("index.html", {"request": request, "status": s, "meteo": meteo})
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request, "status": s, "meteo": meteo},
+    )
 
 
 @app.post("/run")
