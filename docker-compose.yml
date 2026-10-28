@@ -19,4 +19,9 @@ services:
       REGIONE: "Lombardia"
       RUN_HOUR: "7"
       RUN_MINUTE: "0"
+    volumes:
+      - meteo-data:/data
     restart: unless-stopped
+
+volumes:
+  meteo-data:

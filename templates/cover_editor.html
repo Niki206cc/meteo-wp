@@ -1,0 +1,221 @@
+<section class="card" id="cover-editor">
+  <h2 class="section-title">Immagine in evidenza e scritte</h2>
+  <p class="subtitle">Personalizza la copertina dei prossimi articoli. L’anteprima non pubblica nulla.</p>
+  <form id="cover-form" enctype="multipart/form-data">
+    <div class="cover-layout">
+      <div class="cover-controls">
+        <fieldset>
+          <legend>Immagine di base</legend>
+          <label for="source">Origine</label>
+          <select id="source" name="source">
+            <option value="url">Da un indirizzo web</option>
+            <option value="upload">File caricato</option>
+          </select>
+          <div id="url-fields">
+            <label for="image_url">URL immagine</label>
+            <input id="image_url" name="image_url" type="url" maxlength="2048" placeholder="https://…/Lombardia.jpg">
+          </div>
+          <div id="upload-fields" hidden>
+            <label for="image-file">Carica o sostituisci immagine</label>
+            <input id="image-file" name="image" type="file" accept="image/jpeg,image/png,image/webp">
+            <p class="hint" id="upload-status">{{ "Un’immagine è già salvata. Scegli un file solo per sostituirla." if has_upload else "Nessun file salvato: seleziona un’immagine." }}</p>
+          </div>
+          <p class="hint">JPG, PNG o WebP, massimo 15 MB. Preferisci un originale largo almeno 1600 pixel.</p>
+          <label for="fit">Adattamento al formato 16:9</label>
+          <select id="fit" name="fit">
+            <option value="contain">Immagine intera, con margini se necessari</option>
+            <option value="cover">Riempi la copertina, ritagliando i bordi</option>
+          </select>
+          <label for="background">Colore dei margini</label>
+          <input id="background" name="background" type="color">
+        </fieldset>
+        <fieldset>
+          <legend>Testi sulla copertina</legend>
+          <label class="check"><input type="checkbox" id="text_enabled" name="text_enabled"> Mostra le scritte</label>
+          <p class="hint">Usa <code>{data}</code> per “Mercoledì 28 ottobre 2026”, <code>{giorno}</code> per “28/10/2026” e <code>{regione}</code> per la regione. La data si aggiorna a ogni invio. Lascia vuota una riga per nasconderla.</p>
+          <label for="title">Titolo sull’immagine</label>
+          <textarea id="title" name="title" rows="2" maxlength="300"></textarea>
+          <div class="cover-grid">
+            <label>X (%)<input name="title_x" type="number" min="0" max="100" step="0.1" required></label>
+            <label>Y (%)<input name="title_y" type="number" min="0" max="100" step="0.1" required></label>
+            <label>Dimensione (px)<input name="title_size" type="number" min="16" max="180" required></label>
+          </div>
+          <label for="subtitle">Seconda scritta (facoltativa)</label>
+          <textarea id="subtitle" name="subtitle" rows="2" maxlength="300"></textarea>
+          <div class="cover-grid">
+            <label>X (%)<input name="subtitle_x" type="number" min="0" max="100" step="0.1" required></label>
+            <label>Y (%)<input name="subtitle_y" type="number" min="0" max="100" step="0.1" required></label>
+            <label>Dimensione (px)<input name="subtitle_size" type="number" min="16" max="180" required></label>
+          </div>
+          <p class="hint">X e Y indicano il centro della scritta. I testi lunghi vanno a capo e si adattano allo spazio disponibile.</p>
+        </fieldset>
+        <fieldset>
+          <legend>Stile delle scritte</legend>
+          <div class="cover-grid">
+            <label>Colore testo<input name="text_color" type="color"></label>
+            <label>Contorno<input name="stroke_color" type="color"></label>
+            <label>Spessore (px)<input name="stroke_width" type="number" min="0" max="10" required></label>
+            <label>Sfondo scritte<input name="box_color" type="color"></label>
+            <label class="span-two">Opacità sfondo (%)<input name="box_opacity" type="number" min="0" max="100" required></label>
+          </div>
+          <p class="hint">Imposta opacità 0 per togliere la fascia. Il titolo dell’articolo WordPress resta quello automatico.</p>
+        </fieldset>
+      </div>
+      <div class="cover-preview-column">
+        <div class="cover-preview-sticky">
+          <h3>Anteprima copertina · 1600 × 900 px</h3>
+          <div class="preview-frame"><img id="cover-preview" src="/cover/preview" alt="Anteprima dell’immagine in evidenza con le impostazioni salvate"></div>
+          <p class="hint" id="preview-hint">Anteprima delle impostazioni salvate. Per vedere le modifiche premi “Aggiorna anteprima”.</p>
+          <fieldset>
+            <legend>Posiziona con un clic sull’anteprima</legend>
+            <label class="check"><input type="radio" name="position-target" value="title" checked> Titolo</label>
+            <label class="check"><input type="radio" name="position-target" value="subtitle"> Seconda scritta</label>
+          </fieldset>
+          <div class="cover-buttons">
+            <button class="btn btn-secondary" id="preview-button" type="button">AGGIORNA ANTEPRIMA</button>
+            <button class="btn btn-primary" id="save-cover" type="submit">SALVA GRAFICA</button>
+          </div>
+          <div id="cover-message" class="message" role="status" aria-live="polite" hidden></div>
+          <p class="hint">La grafica salvata viene usata sia dagli invii automatici sia da “Invia ora l’articolo”. Immagine e impostazioni restano disponibili dopo il riavvio.</p>
+        </div>
+      </div>
+    </div>
+  </form>
+</section>
+<style>
+  .container { width: min(1120px, 100%); }
+  .cover-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 24px; margin-top: 18px; }
+  .cover-controls fieldset, .cover-preview-column fieldset { border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin: 0 0 18px; min-width: 0; }
+  #cover-editor legend { font-weight: 800; padding: 0 6px; }
+  #cover-editor label { display: block; font-size: 13px; font-weight: 700; margin: 10px 0 5px; }
+  #cover-editor input:not([type=checkbox]):not([type=radio]), #cover-editor select, #cover-editor textarea { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit; color: var(--text); background: white; margin-top: 5px; }
+  #cover-editor input[type=color] { height: 44px; padding: 3px !important; }
+  #cover-editor textarea { resize: vertical; }
+  #cover-editor .check { display: inline-flex; align-items: center; gap: 7px; margin-right: 14px; }
+  .cover-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .span-two { grid-column: span 2; }
+  .hint { font-size: 12px; color: var(--muted); line-height: 1.55; overflow-wrap: anywhere; }
+  .hint code { color: #31546c; }
+  .cover-preview-sticky { position: sticky; top: 20px; }
+  .cover-preview-sticky h3 { font-size: 15px; margin: 0 0 12px; }
+  .preview-frame { aspect-ratio: 16/9; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: #f8f7f3; }
+  #cover-preview { display: block; width: 100%; height: 100%; object-fit: contain; cursor: crosshair; }
+  .cover-buttons { display: grid; gap: 10px; }
+  .btn:disabled { cursor: wait; opacity: .6; transform: none; }
+  [hidden] { display: none !important; }
+  @media (max-width: 850px) { .cover-layout { grid-template-columns: 1fr; } .cover-preview-column { grid-row: 1; } .cover-preview-sticky { position: static; } }
+</style>
+<script>
+(() => {
+  const initial = {{ cover | tojson }};
+  const form = document.getElementById('cover-form');
+  const image = document.getElementById('cover-preview');
+  const message = document.getElementById('cover-message');
+  const hint = document.getElementById('preview-hint');
+  const saveButton = document.getElementById('save-cover');
+  const previewButton = document.getElementById('preview-button');
+  let dirty = false, busy = false, previewURL = null;
+  let revision = 0;
+  const numeric = new Set(['title_x','title_y','subtitle_x','subtitle_y','title_size','subtitle_size','stroke_width','box_opacity']);
+  for (const [key, value] of Object.entries(initial)) {
+    const field = form.elements.namedItem(key);
+    if (field.type === 'checkbox') field.checked = value; else field.value = value;
+  }
+  function sourceFields() {
+    const upload = form.elements.source.value === 'upload';
+    document.getElementById('url-fields').hidden = upload;
+    document.getElementById('upload-fields').hidden = !upload;
+    form.elements.image_url.required = !upload;
+  }
+  function changed() {
+    dirty = true;
+    revision++;
+    hint.textContent = 'Modifiche non salvate. Aggiorna l’anteprima, poi salva la grafica per applicarle agli invii.';
+  }
+  function showMessage(text, error=false) {
+    message.textContent = text;
+    message.className = 'message ' + (error ? 'message-error' : 'message-success');
+    message.hidden = false;
+  }
+  function payload() {
+    const settings = {};
+    for (const key of Object.keys(initial)) {
+      const field = form.elements.namedItem(key);
+      settings[key] = field.type === 'checkbox' ? field.checked : numeric.has(key) ? Number(field.value) : field.value;
+    }
+    const data = new FormData();
+    data.append('settings', JSON.stringify(settings));
+    const file = document.getElementById('image-file').files[0];
+    if (settings.source === 'upload' && file) data.append('image', file);
+    return data;
+  }
+  async function send(action) {
+    if (busy || !form.reportValidity()) return;
+    const file = document.getElementById('image-file').files[0];
+    if (form.elements.source.value === 'upload' && file && file.size > 15 * 1024 * 1024) {
+      showMessage('L’immagine supera i 15 MB.', true); return;
+    }
+    busy = true;
+    const sentRevision = revision;
+    saveButton.disabled = previewButton.disabled = true;
+    message.hidden = false;
+    message.className = 'message';
+    message.textContent = action === 'preview' ? 'Generazione anteprima…' : 'Salvataggio grafica…';
+    try {
+      const response = await fetch('/cover/' + action, {method:'POST', body:payload()});
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || 'Operazione non riuscita. Riprova.');
+      }
+      if (action === 'preview') {
+        const blob = await response.blob();
+        if (previewURL) URL.revokeObjectURL(previewURL);
+        previewURL = URL.createObjectURL(blob);
+        image.src = previewURL;
+        hint.textContent = sentRevision !== revision ? 'Hai modificato i controlli durante la generazione: aggiorna nuovamente l’anteprima.' : dirty ? 'Anteprima aggiornata. Salva la grafica per usarla nei prossimi articoli.' : 'Anteprima delle impostazioni salvate.';
+        showMessage('Anteprima aggiornata. Nessun articolo è stato pubblicato.');
+      } else {
+        const body = await response.json();
+        if (sentRevision === revision) {
+          dirty = false;
+          document.getElementById('image-file').value = '';
+          if (previewURL) { URL.revokeObjectURL(previewURL); previewURL = null; }
+          image.src = '/cover/preview?t=' + Date.now();
+          hint.textContent = 'Grafica salvata, pronta per il prossimo invio.';
+        }
+        if (body.has_upload) document.getElementById('upload-status').textContent = 'Un’immagine è già salvata. Scegli un file solo per sostituirla.';
+        showMessage(dirty ? 'Impostazioni inviate salvate. Sono presenti altre modifiche ancora da salvare.' : body.message);
+      }
+    } catch (error) { showMessage(error.message, true); }
+    finally { busy = false; saveButton.disabled = previewButton.disabled = false; }
+  }
+  form.addEventListener('input', event => {
+    if (event.target.name !== 'position-target') changed();
+    sourceFields();
+  });
+  document.getElementById('image-file').addEventListener('change', () => {
+    if (document.getElementById('image-file').files.length) {
+      form.elements.source.value = 'upload'; sourceFields(); changed();
+    }
+  });
+  image.addEventListener('click', event => {
+    const rect = image.getBoundingClientRect();
+    const target = form.elements.namedItem('position-target').value;
+    form.elements.namedItem(target + '_x').value = ((event.clientX - rect.left) / rect.width * 100).toFixed(1);
+    form.elements.namedItem(target + '_y').value = ((event.clientY - rect.top) / rect.height * 100).toFixed(1);
+    changed();
+  });
+  image.addEventListener('error', () => { hint.textContent = 'Anteprima non disponibile. Controlla l’immagine e premi “Aggiorna anteprima” per vedere il dettaglio dell’errore.'; });
+  form.addEventListener('submit', event => { event.preventDefault(); send('settings'); });
+  previewButton.addEventListener('click', () => send('preview'));
+  document.querySelector('form[action="/run"]').addEventListener('submit', event => {
+    if (dirty || busy) {
+      event.preventDefault();
+      showMessage('Salva la grafica prima di inviare l’articolo.', true);
+      document.getElementById('cover-editor').scrollIntoView({behavior:'smooth'});
+    }
+  });
+  window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
+  sourceFields();
+})();
+</script>

@@ -1,18 +1,20 @@
 import os
 import threading
+import tempfile
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
-from io import BytesIO
 from typing import Dict, List, Optional
 
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
-from PIL import Image, ImageDraw, ImageFont
+from pydantic import ValidationError
+from starlette.concurrency import run_in_threadpool
+from cover import CoverSettings, CoverStore, MAX_BYTES, TZ, date_values
 
 
 # ======================
@@ -90,71 +92,16 @@ last_meteo: List[dict] = []
 lock = threading.Lock()
 
 
-def crea_immagine_con_titolo(titolo_testo: str) -> str:
-    import textwrap
+cover_store = CoverStore(os.getenv("DATA_DIR", "/data"), IMG_DEFAULT_URL, FONT_PATH)
+job_lock = threading.Lock()
 
-    r = requests.get(IMG_DEFAULT_URL, timeout=30)
-    r.raise_for_status()
-    img = Image.open(BytesIO(r.content)).convert("RGBA")
 
-    overlay = Image.new("RGBA", img.size, (255, 255, 255, 0))
-    draw = ImageDraw.Draw(overlay)
-    img_w, img_h = img.size
-    margin_x = int(img_w * 0.06)
-    max_text_w = img_w - 2 * margin_x
-    padding = 16
-    y = 30
-    start_size = 56
-    min_size = 28
-
-    def load_font(sz: int):
-        try:
-            return ImageFont.truetype(FONT_PATH, sz)
-        except Exception:
-            return ImageFont.load_default()
-
-    def measure(lines, font):
-        heights = []
-        widths = []
-        for line in lines:
-            bbox = draw.textbbox((0, 0), line, font=font)
-            widths.append(bbox[2] - bbox[0])
-            heights.append(bbox[3] - bbox[1])
-        return max(widths) if widths else 0, sum(heights) + (len(lines) - 1) * 6
-
-    best_lines = [titolo_testo]
-    best_font = load_font(start_size)
-
-    for size in range(start_size, min_size - 1, -2):
-        font = load_font(size)
-        approx_chars = max(12, int(max_text_w / (size * 0.55)))
-        wrapped = textwrap.wrap(titolo_testo, width=approx_chars)
-        if len(wrapped) <= 3:
-            w, h = measure(wrapped, font)
-            if w <= max_text_w and (y + h + 2 * padding) < img_h * 0.5:
-                best_lines = wrapped
-                best_font = font
-                break
-
-    text_w, text_h = measure(best_lines, best_font)
-    box_x0 = (img_w - text_w) / 2 - padding
-    box_y0 = y - padding
-    box_x1 = (img_w + text_w) / 2 + padding
-    box_y1 = y + text_h + padding
-    draw.rectangle((box_x0, box_y0, box_x1, box_y1), fill=(0, 0, 0, 150))
-
-    cur_y = y
-    for line in best_lines:
-        bbox = draw.textbbox((0, 0), line, font=best_font)
-        lw = bbox[2] - bbox[0]
-        lh = bbox[3] - bbox[1]
-        draw.text(((img_w - lw) / 2, cur_y), line, font=best_font, fill=(255, 255, 255, 255))
-        cur_y += lh + 6
-
-    out = Image.alpha_composite(img, overlay).convert("RGB")
-    fname = f"/tmp/meteo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-    out.save(fname, quality=92)
-    return fname
+def crea_immagine_con_titolo(values=None) -> str:
+    # The scheduled job and panel preview use exactly the same renderer/settings.
+    image = cover_store.render(values=values or date_values(regione=REGIONE))
+    with tempfile.NamedTemporaryFile(prefix="meteo_", suffix=".jpg", delete=False) as file:
+        file.write(image)
+        return file.name
 
 
 def richiesta_open_meteo(params: dict) -> requests.Response:
@@ -291,13 +238,16 @@ def publish_to_wordpress(titolo: str, testo_html: str, immagine_path: str) -> Op
 def run_job():
     global last_meteo
 
+    if not job_lock.acquire(blocking=False):
+        return
+
     with lock:
         status.running = True
         status.last_error = None
         status.last_post_url = None
 
     try:
-        oggi = datetime.now()
+        oggi = datetime.now(TZ)
         giorno = giorni_it[oggi.weekday()]
         mese = mesi_it[oggi.month - 1]
         oggi_data = f"{giorno} {oggi.day} {mese} {oggi.year}"
@@ -305,7 +255,7 @@ def run_job():
 
         meteo_citta = fetch_meteo_oggi()
         testo_html = build_testo_html(oggi_data, meteo_citta)
-        img_path = crea_immagine_con_titolo(f"Meteo di {oggi_data}")
+        img_path = crea_immagine_con_titolo(values=date_values(oggi, REGIONE))
 
         try:
             post_url = publish_to_wordpress(titolo, testo_html, img_path)
@@ -318,16 +268,17 @@ def run_job():
 
         with lock:
             last_meteo = meteo_citta
-            status.last_run = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            status.last_run = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
             status.last_post_url = post_url
 
     except Exception as errore:
         with lock:
             status.last_error = str(errore)
-            status.last_run = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            status.last_run = datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S")
     finally:
         with lock:
             status.running = False
+        job_lock.release()
 
 
 def run_job_async():
@@ -353,7 +304,7 @@ def update_next_run():
 def on_startup():
     scheduler.add_job(
         run_job,
-        CronTrigger(hour=RUN_HOUR, minute=RUN_MINUTE),
+        CronTrigger(hour=RUN_HOUR, minute=RUN_MINUTE, timezone="Europe/Rome"),
         id="daily_meteo",
         replace_existing=True,
         max_instances=1,
@@ -377,7 +328,8 @@ def index(request: Request):
         meteo = list(last_meteo)
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "status": s, "meteo": meteo},
+        {"request": request, "status": s, "meteo": meteo,
+         "cover": cover_store.load().model_dump(), "has_upload": cover_store.has_upload()},
     )
 
 
@@ -392,3 +344,58 @@ def health():
     with lock:
         s = asdict(status)
     return JSONResponse({"ok": True, "status": s})
+
+
+async def read_cover_form(request: Request):
+    length = request.headers.get("content-length")
+    if length and int(length) > MAX_BYTES + 1024 * 1024:
+        raise ValueError("Il caricamento supera i 15 MB consentiti.")
+    async with request.form(max_files=1, max_fields=1) as form:
+        settings = CoverSettings.model_validate_json(form.get("settings", "{}"))
+        uploaded = form.get("image")
+        data = None
+        if uploaded is not None and getattr(uploaded, "filename", None):
+            data = await uploaded.read(MAX_BYTES + 1)
+            if len(data) > MAX_BYTES:
+                raise ValueError("L'immagine supera i 15 MB.")
+        return settings, data
+
+
+def cover_error(error):
+    if isinstance(error, ValidationError):
+        message = "; ".join(".".join(map(str, item["loc"])) + ": " + item["msg"] for item in error.errors())
+    elif isinstance(error, OSError):
+        message = "Impossibile leggere o salvare la grafica: controlla il volume dati e i permessi."
+    else:
+        message = str(error)
+    return JSONResponse({"error": message}, status_code=400)
+
+
+@app.post("/cover/preview")
+async def cover_preview(request: Request):
+    try:
+        settings, upload = await read_cover_form(request)
+        data = await run_in_threadpool(cover_store.render, settings, upload, date_values(regione=REGIONE))
+        return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+    except (ValueError, OSError) as error:
+        return cover_error(error)
+
+
+@app.get("/cover/preview")
+def saved_cover_preview():
+    try:
+        data = cover_store.render(values=date_values(regione=REGIONE))
+        return Response(data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+    except (ValueError, OSError) as error:
+        return cover_error(error)
+
+
+@app.post("/cover/settings")
+async def save_cover_settings(request: Request):
+    try:
+        settings, upload = await read_cover_form(request)
+        await run_in_threadpool(cover_store.save, settings, upload)
+        return JSONResponse({"ok": True, "message": "Grafica salvata: sarà usata nei prossimi invii.",
+                             "has_upload": cover_store.has_upload()})
+    except (ValueError, OSError) as error:
+        return cover_error(error)
